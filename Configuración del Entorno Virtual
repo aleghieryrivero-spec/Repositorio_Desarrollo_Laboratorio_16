@@ -1,0 +1,38 @@
+Configuración del Entorno Virtual (Fase 0)
+1. Diagnóstico Inicial del Segmento de Red
+Al iniciar el entorno de laboratorio, se procedió a verificar la configuración de direccionamiento IP nativo en el servidor de la víctima (Ubuntu Server) utilizando el comando de administración de red del Kernel de Linux:
+
+ip add
+
+Hallazgo: La interfaz de red dinámica ens33 no adoptaba el direccionamiento estático planificado por la guía (10.160.10.200/24). En su lugar, el servicio DHCP predeterminado de VMware le asignaba de forma dinámica una IP en el rango residencial 192.168.161.X/24.
+
+2. Análisis del Conflicto en el Subsistema de Red (Netplan)
+Para identificar la raíz de la anomalía, se inspeccionó el archivo de configuración del renderizador de red de Ubuntu (Netplan) mediante el editor de texto en terminal:
+
+sudo nano /etc/netplan/00-installer-config.yaml
+
+Al analizar la declaración de la directiva ethernets, se detectó el origen del problema:
+
+El laboratorio fue distribuido como una plantilla empaquetada o clonada. El archivo YAML de Netplan exigía una dirección física (MAC) estricta e hardcodeada: macaddress: 00:0c:29:d2:66:d9.
+
+Sin embargo, al importar la máquina virtual, el hipervisor (VMware Workstation) generó de forma automática una dirección MAC de hardware totalmente nueva e incompatible (00:0c:29:b9:a4:af).
+
+Consecuencia: Al no haber coincidencia ("mismatch") entre la dirección física del hardware virtual y la regla declarada en la configuración lógica, Netplan fallaba al aplicar los cambios (sudo netplan apply) aislando la interfaz.
+
+3. Resolución y Sincronización de Infraestructura Virtual
+Para solucionar el problema sin corromper la integridad de las directivas lógicas del servidor, se optó por una solución a nivel de hipervisor adaptando el hardware virtual al entorno del proyecto:
+
+Ajuste de Hardware en VMware (WebServer): Se apagó la máquina virtual y se accedió a Edit Virtual Machine Settings > Network Adapter > Advanced. Se sobrescribió la dirección física por defecto del hipervisor, forzando la MAC exacta que requería el proyecto: 00:0c:29:d2:66:d9.
+
+Reconfiguración del Conmutador Virtual (Switch VMnet8): Desde el host, se ejecutó el Virtual Network Editor con privilegios elevados. Se modificó el direccionamiento de la subred NAT (VMnet8) cambiando el rango por defecto a la red oficial del laboratorio: 10.160.10.0 con máscara 255.255.255.0.
+
+4. Verificación del Estado de Operación
+Tras aplicar los cambios en la infraestructura de VMware y reiniciar el servidor web, el subsistema Netplan logró asociar con éxito la tarjeta de red. Al ejecutar nuevamente ip add, se constató que el servidor web adoptó de manera nativa y transparente la IP asignada por el diseño del laboratorio: 10.160.10.200/24.
+
+Nota de Arquitectura respecto al Nodo Hostil (Kali Linux)
+Para mantener el flujo ágil del laboratorio y evitar modificaciones innecesarias en un sistema cerrado, la tarjeta de red de la máquina atacante (Kali Linux) se configuró de forma homóloga en el switch personalizado VMnet8 (NAT).
+
+Al no realizarse un cambio manual de MAC en su hardware virtual, el servidor DHCP local de VMware le asignará una dirección IP dinámica dentro del pool configurado (10.160.10.X).
+
+Métrica de Impacto para el Reporte: Debido a esta variación dinámica, la dirección IP del atacante real diferirá de la planteada inicialmente en la guía teórica (.100). Al momento de ejecutar el análisis de logs y sockets en la Fase 1, el vector de ataque hostil deberá ser identificado e interceptado dinámicamente mediante la lectura de tráfico y no por suposición de IP estática, elevando el rigor técnico de la mitigación.
+
