@@ -1,4 +1,4 @@
-Configuración del Entorno Virtual (Fase 0)
+Fase 0: Configuración del Entorno Virtual
 1. Diagnóstico Inicial del Segmento de Red
 Al iniciar el entorno de laboratorio, se procedió a verificar la configuración de direccionamiento IP nativo en el servidor de la víctima (Ubuntu Server) utilizando el comando de administración de red del Kernel de Linux:
 
@@ -36,3 +36,27 @@ Al no realizarse un cambio manual de MAC en su hardware virtual, el servidor DHC
 
 Métrica de Impacto para el Reporte: Debido a esta variación dinámica, la dirección IP del atacante real diferirá de la planteada inicialmente en la guía teórica (.100). Al momento de ejecutar el análisis de logs y sockets en la Fase 1, el vector de ataque hostil deberá ser identificado e interceptado dinámicamente mediante la lectura de tráfico y no por suposición de IP estática, elevando el rigor técnico de la mitigación.
 
+FASE 1: Recopilación de Información (HP Paso 1)
+1. Transferencia de Red (nload)
+Ejecución del Comando
+Para cumplir con el reto analítico de la guía, leímos el manual (nload -h) para modificar los parámetros por defecto (que suelen mostrar el tráfico en Bits y con refresco de 1 segundo). Se determinó que las banderas correctas son -u M (para Megabytes) y -t 200 (para el refresco en milisegundos):
+
+nload ens33 -u M -t 200
+
+Análisis Técnico de la Anomalía
+Métricas Registradas: El tráfico entrante (Incoming) es insignificante (0.01 MByte/s), lo que descarta que el canal de bajada esté saturado. Sin embargo, el tráfico saliente (Outgoing) muestra picos máximos de 21.39 MByte/s y una transferencia acumulada masiva de 30.35 GByte.
+
+Interpretación del TX Alto: Un valor de TX (Transmisión) tan elevado en un servidor web Apache bajo ataque confirma que una entidad externa está forzando al servidor a enviar datos de manera masiva. Esto correlaciona directamente con la descarga no autorizada y repetitiva de archivos de gran volumen (como el volcado de base de datos db.sql mencionado en el escenario). El ancho de banda de subida está completamente agotado por este proceso, lo que genera la degradación extrema del servicio (Jitter e intermitencia) para los usuarios legítimos que intentan cargar la aplicación web.
+
+2. Estado de Sockets y Conexiones (ss)
+Ejecución del Comando
+Para inspeccionar el estado actual de la pila TCP del Kernel y evaluar la integridad del protocolo de enlace en el puerto web (Puerto 80), se ejecutó:
+
+ss -antp | grep -E 'ESTAB|SYN-RECV'
+
+Análisis Técnico de la Salida
+Diagnóstico SSH Legítimo: La primera línea muestra un socket en estado ESTABLISHED (Conexión activa) en el puerto 22 (SSH) proveniente de la IP 10.160.10.1 (Tu máquina física/Host). Esto valida que la sesión de administración es legítima y estable.
+
+Inundación Masiva en el Puerto 80 (SYN-RECV): Se observan cientos de sockets saturando el puerto HTTP (80) en estado estricto de SYN-RECV.
+
+Naturaleza del Tráfico (Suplantación de Identidad / Spoofing): Las conexiones entrantes registran direcciones IP de origen completamente absurdas y fuera de estándar (como 0.5.161.128, 255.204.241.13 o 242.41.233.126). Muchas de estas IPs pertenecen a rangos reservados, de pruebas o no enrutables en internet.
